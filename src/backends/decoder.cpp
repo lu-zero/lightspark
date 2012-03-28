@@ -108,7 +108,7 @@ FFMpegVideoDecoder::FFMpegVideoDecoder(LS_VIDEO_CODEC codecId, uint8_t* initdata
 	curBuffer(0),curBufferOffset(0),codecContext(NULL),ownedContext(true)
 {
 	//The tag is the header, initialize decoding
-	codecContext=avcodec_alloc_context();
+	codecContext=avcodec_alloc_context3(NULL);
 	AVCodec* codec=NULL;
 	videoCodec=codecId;
 	if(codecId==H264)
@@ -147,7 +147,7 @@ FFMpegVideoDecoder::FFMpegVideoDecoder(LS_VIDEO_CODEC codecId, uint8_t* initdata
 		frameRate=frameRateHint;
 	}
 
-	if(avcodec_open(codecContext, codec)<0)
+	if(avcodec_open2(codecContext, codec, NULL)<0)
 		throw RunTimeException("Cannot open decoder");
 
 	if(fillDataAndCheckValidity())
@@ -178,7 +178,7 @@ FFMpegVideoDecoder::FFMpegVideoDecoder(AVCodecContext* _c, double frameRateHint)
 			return;
 	}
 	AVCodec* codec=avcodec_find_decoder(codecContext->codec_id);
-	if(avcodec_open(codecContext, codec)<0)
+	if(avcodec_open2(codecContext, codec, NULL)<0)
 		return;
 
 	frameRate=frameRateHint;
@@ -451,7 +451,7 @@ FFMpegAudioDecoder::FFMpegAudioDecoder(LS_AUDIO_CODEC audioCodec, uint8_t* initd
 	AVCodec* codec=avcodec_find_decoder(codecId);
 	assert(codec);
 
-	codecContext=avcodec_alloc_context();
+	codecContext=avcodec_alloc_context3(NULL);
 
 	if(initdata)
 	{
@@ -459,7 +459,7 @@ FFMpegAudioDecoder::FFMpegAudioDecoder(LS_AUDIO_CODEC audioCodec, uint8_t* initd
 		codecContext->extradata_size=datalen;
 	}
 
-	if(avcodec_open(codecContext, codec)<0)
+	if(avcodec_open2(codecContext, codec, NULL)<0)
 		throw RunTimeException("Cannot open decoder");
 
 	if(fillDataAndCheckValidity())
@@ -474,7 +474,7 @@ FFMpegAudioDecoder::FFMpegAudioDecoder(AVCodecContext* _c):codecContext(_c)
 	AVCodec* codec=avcodec_find_decoder(codecContext->codec_id);
 	assert(codec);
 
-	if(avcodec_open(codecContext, codec)<0)
+	if(avcodec_open2(codecContext, codec, NULL)<0)
 		return;
 
 	if(fillDataAndCheckValidity())
@@ -591,7 +591,7 @@ FFMpegStreamDecoder::FFMpegStreamDecoder(std::istream& s):stream(s),formatCtx(NU
 {
 	valid=false;
 	//NOTE: this will become avio_alloc_context in FFMpeg 0.7
-	avioContext=av_alloc_put_byte(avioBuffer,4096,0,this,avioReadPacket,NULL,NULL);
+	avioContext=avio_alloc_context(avioBuffer,4096,0,this,avioReadPacket,NULL,NULL);
 	if(avioContext==NULL)
 		return;
 
@@ -600,7 +600,7 @@ FFMpegStreamDecoder::FFMpegStreamDecoder(std::istream& s):stream(s),formatCtx(NU
 #else
 	avioContext->is_streamed=1;
 #endif
-	
+
 	//Probe the stream format.
 	//NOTE: in FFMpeg 0.7 there is av_probe_input_buffer
 	AVProbeData probeData;
@@ -619,12 +619,13 @@ FFMpegStreamDecoder::FFMpegStreamDecoder(std::istream& s):stream(s),formatCtx(NU
 	delete[] probeData.buf;
 	if(fmt==NULL)
 		return;
-
-	int ret=av_open_input_stream(&formatCtx, avioContext, "lightspark_stream", fmt, NULL);
+        formatCtx = avformat_alloc_context();
+        formatCtx->pb = avioContext;
+	int ret=avformat_open_input(&formatCtx, "lightspark_stream", fmt, NULL);
 	if(ret<0)
 		return;
-	
-	ret=av_find_stream_info(formatCtx);
+
+	ret=avformat_find_stream_info(formatCtx, NULL);
 	if(ret<0)
 		return;
 
@@ -668,9 +669,7 @@ FFMpegStreamDecoder::~FFMpegStreamDecoder()
 	audioDecoder=NULL;
 	videoDecoder=NULL;
 	if(formatCtx)
-		av_close_input_stream(formatCtx);
-	if(avioContext)
-		av_free(avioContext);
+		avformat_close_input(&formatCtx);
 }
 
 bool FFMpegStreamDecoder::decodeNextFrame()
